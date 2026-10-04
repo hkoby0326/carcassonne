@@ -176,38 +176,92 @@ const MEEPLE_D = 'M10 0 C7 0 5.5 2 5.5 4.5 C5.5 6 6.2 7.2 7 8 L2.5 10.5 C1 11.3 
 
 // ---------- タイル描画 ----------
 const EDGE_MID = [[50,0],[100,50],[50,100],[0,50]];
-function pathD(edges, endPt){
+function pathD(edges, endPt, tight){
   if (edges.length===1){ const m=EDGE_MID[edges[0]]; const e=endPt||[50,50]; return `M${m[0]},${m[1]} L${e[0]},${e[1]}`; }
   if (edges.length===2){ const a=EDGE_MID[edges[0]], b=EDGE_MID[edges[1]];
     if ((edges[1]-edges[0])%2===0) return `M${a[0]},${a[1]} L${b[0]},${b[1]}`;
+    if (tight){ const cx=a[0]===50?b[0]:a[0], cy=a[1]===50?b[1]:a[1]; const k=0.6; return `M${a[0]},${a[1]} Q${50+(cx-50)*k},${50+(cy-50)*k} ${b[0]},${b[1]}`; }
     return `M${a[0]},${a[1]} Q50,50 ${b[0]},${b[1]}`; }
   return edges.map(e=>{const m=EDGE_MID[e]; return `M${m[0]},${m[1]} L50,50`;}).join(' ');
 }
-const CITY_D = { cap:'M0,0 H100 V6 Q100,26 50,30 Q0,26 0,6 Z', corner:'M0,0 H100 V100 Q52,48 0,0 Z', band:'M0,0 H100 Q45,50 100,100 H0 Q55,50 0,0 Z', triple:'M0,0 H100 V100 Q50,44 0,100 Z', full:'M0,0 H100 V100 H0 Z' };
-const CITY_HOUSES = { cap:[[14,5,10,9],[44,4,12,11],[74,5,10,9]], corner:[[70,8,12,10],[84,30,10,10],[50,10,9,8]], band:[[38,12,10,9],[52,40,11,10],[40,70,10,9]], triple:[[12,10,11,10],[46,8,12,11],[78,12,11,10],[30,38,10,9],[62,40,10,9]], full:[[14,12,12,11],[46,10,12,11],[76,14,12,11],[30,44,11,10],[62,46,11,10],[22,74,12,11],[58,76,12,11]] };
+// ---- 都市の形: fill = 塗り（閉じたパス）, wall = 草原との境界の城壁（開いたパス） ----
+const CITY_SHAPES = {
+  cap:    { fill:'M0,0 H100 V8 C100,30 72,38 50,38 C28,38 0,30 0,8 Z', wall:['M100,8 C100,30 72,38 50,38 C28,38 0,30 0,8'] },
+  corner: { fill:'M0,0 H100 V100 C80,100 0,20 0,0 Z', wall:['M100,100 C80,100 0,20 0,0'] },
+  band:   { fill:'M0,0 H100 C100,30 70,40 70,50 C70,60 100,70 100,100 H0 C0,70 30,60 30,50 C30,40 0,30 0,0 Z', wall:['M100,0 C100,30 70,40 70,50 C70,60 100,70 100,100','M0,100 C0,70 30,60 30,50 C30,40 0,30 0,0'] },
+  triple: { fill:'M0,0 H100 V100 C80,100 70,70 50,70 C30,70 20,100 0,100 Z', wall:['M100,100 C80,100 70,70 50,70 C30,70 20,100 0,100'] },
+  full:   { fill:'M0,0 H100 V100 H0 Z', wall:[] },
+};
+const CITY_HOUSES = {
+  cap:[[12,6,12,10],[30,4,11,12],[48,5,13,11],[66,4,11,12],[82,7,11,9],[40,20,10,9],[58,21,10,9]],
+  corner:[[60,6,12,10],[78,5,12,11],[86,22,10,10],[70,22,11,10],[84,42,10,9],[50,8,9,8]],
+  band:[[38,8,11,10],[52,6,11,11],[44,26,10,9],[42,60,11,10],[52,76,11,10],[38,88,9,8]],
+  triple:[[10,8,12,10],[30,5,12,12],[50,6,12,11],[70,5,12,12],[88,8,10,10],[20,30,11,10],[42,30,11,10],[64,30,11,10],[84,30,10,9],[8,50,10,9],[88,52,9,9]],
+  full:[[8,8,12,11],[28,5,12,12],[48,8,12,10],[68,5,12,12],[86,8,11,10],[16,30,11,10],[38,28,12,11],[60,30,11,10],[82,30,11,10],[8,52,11,10],[30,54,12,11],[52,52,11,10],[74,54,12,11],[18,76,11,10],[42,78,12,11],[66,76,11,10],[86,76,10,9]],
+};
 function houses(kind){
-  return `<g fill="#a8733f" stroke="#5a3a1a" stroke-width="1">` + CITY_HOUSES[kind].map(([x,y,w,h])=>`<rect x="${x}" y="${y}" width="${w}" height="${h}"/><polygon points="${x-1},${y} ${x+w/2},${y-5} ${x+w+1},${y}" fill="#8a2f22"/>`).join('') + `</g>`;
+  return `<g stroke="#4a3320" stroke-width=".8">` + CITY_HOUSES[kind].map(([x,y,w,h],i)=>{
+    const roof = i%3===0 ? '#b8362a' : (i%3===1 ? '#a8402c' : '#c24a30');
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#efe6d2"/><polygon points="${x-1.5},${y} ${x+w/2},${y-6} ${x+w+1.5},${y}" fill="${roof}"/><rect x="${x+w/2-1.5}" y="${y+h-4}" width="3" height="4" fill="#5a3a22" stroke="none"/>`;
+  }).join('') + `</g>`;
+}
+function cityWall(d){
+  return `<path d="${d}" fill="none" stroke="#5a4a38" stroke-width="9" stroke-linecap="round"/>`
+       + `<path d="${d}" fill="none" stroke="#c6bfae" stroke-width="5.5" stroke-linecap="round"/>`
+       + `<path d="${d}" fill="none" stroke="#5a4a38" stroke-width="2.2" stroke-dasharray="3 3.5" stroke-linecap="butt"/>`;
+}
+function wallEnds(d){ // 壁の両端（タイルの縁）に塔
+  const nums = d.match(/-?[\d.]+/g).map(Number); const [x1,y1]=[nums[0],nums[1]]; const [x2,y2]=[nums[nums.length-2],nums[nums.length-1]];
+  return [[x1,y1],[x2,y2]].map(([x,y])=>`<circle cx="${x}" cy="${y}" r="5" fill="#9b937f" stroke="#4a3d2c" stroke-width="1.5"/><circle cx="${x}" cy="${y}" r="2" fill="#5a4a38"/>`).join('');
+}
+// 決定的な疑似乱数（タイル種ごとに同じ模様）
+function prng(seed){ let a=0; for (const ch of seed) a=(a*31+ch.charCodeAt(0))>>>0; return ()=>{ a=(a*1664525+1013904223)>>>0; return a/4294967296; }; }
+function fieldTexture(id){
+  const r=prng(id); let s='';
+  for(let i=0;i<5;i++){ s+=`<ellipse cx="${(r()*100).toFixed(1)}" cy="${(r()*100).toFixed(1)}" rx="${(10+r()*14).toFixed(1)}" ry="${(6+r()*8).toFixed(1)}" fill="#8fb544" opacity=".55"/>`; }
+  for(let i=0;i<4;i++){ const x=r()*100, y=r()*100, k=3+r()*3; s+=`<g><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${k.toFixed(1)}" fill="#4d7a2a"/><circle cx="${(x-k*0.35).toFixed(1)}" cy="${(y-k*0.35).toFixed(1)}" r="${(k*0.6).toFixed(1)}" fill="#6a9a37"/></g>`; }
+  for(let i=0;i<12;i++){ const x=(r()*100).toFixed(1), y=(r()*100).toFixed(1); s+=`<path d="M${x},${y} l-2.5,-4.5 M${x},${y} l0,-5.5 M${x},${y} l2.5,-4.5" stroke="#6f9a34" stroke-width="1.1" stroke-linecap="round" fill="none"/>`; }
+  for(let i=0;i<4;i++){ s+=`<circle cx="${(r()*100).toFixed(1)}" cy="${(r()*100).toFixed(1)}" r="1.1" fill="#fff6c8"/>`; }
+  return s;
+}
+function cloisterMarkup(cx, cy){
+  return `<g transform="translate(${cx-17},${cy-18})">`
+    + `<ellipse cx="17" cy="33" rx="19" ry="5" fill="#c9bf98" opacity=".7"/>`
+    + `<rect x="6" y="16" width="22" height="16" fill="#d9d2c2" stroke="#5a4a3a" stroke-width="1.2"/>`
+    + `<polygon points="4,16 17,6 30,16" fill="#b3372b" stroke="#5a2a1a" stroke-width="1.2"/>`
+    + `<rect x="24" y="4" width="8" height="28" fill="#cfc6b4" stroke="#5a4a3a" stroke-width="1.2"/>`
+    + `<polygon points="23,4 28,-5 33,4" fill="#8d2f24" stroke="#5a2a1a" stroke-width="1.2"/>`
+    + `<path d="M28,-5 v-4 M26,-7.5 h4" stroke="#4a3a2a" stroke-width="1.4"/>`
+    + `<rect x="10" y="22" width="4" height="6" fill="#5a4a3a"/><rect x="17" y="22" width="4" height="6" fill="#5a4a3a"/><rect x="26" y="12" width="3" height="5" fill="#5a4a3a"/>`
+    + `<rect x="8" y="18" width="18" height="1" fill="#b9b0a0"/><rect x="8" y="26" width="18" height="1" fill="#b9b0a0"/>`
+    + `</g>`;
 }
 function tileMarkup(type){
-  let s = `<rect width="100" height="100" fill="#8fbf62"/>`;
-  s += `<g opacity=".16" fill="#2f6a1f"><circle cx="20" cy="30" r="9"/><circle cx="70" cy="80" r="11"/><circle cx="80" cy="25" r="6"/><circle cx="30" cy="75" r="5"/><circle cx="55" cy="55" r="4"/></g>`;
+  let s = `<rect width="100" height="100" fill="#9fc04c"/>${fieldTexture(type.id)}`;
+  // 川
   type.feats.filter(f=>f.type==='river').forEach(f=>{
     const d = pathD(f.edges);
-    s += `<path d="${d}" fill="none" stroke="#2f6db5" stroke-width="18" stroke-linecap="round"/><path d="${d}" fill="none" stroke="#5aa9f0" stroke-width="12" stroke-linecap="round"/>`;
-    if (f.kind==='spring') s += `<circle cx="50" cy="50" r="13" fill="#5aa9f0" stroke="#2f6db5" stroke-width="3"/><circle cx="50" cy="50" r="4" fill="#dff1ff"/>`;
-    if (f.kind==='lake') s += `<ellipse cx="50" cy="50" rx="27" ry="21" fill="#5aa9f0" stroke="#2f6db5" stroke-width="3"/><ellipse cx="44" cy="44" rx="8" ry="4" fill="#9fd0ff" opacity=".8"/>`;
+    s += `<path d="${d}" fill="none" stroke="#3b7ec4" stroke-width="22" stroke-linecap="round"/><path d="${d}" fill="none" stroke="#72b3ea" stroke-width="15" stroke-linecap="round"/><path d="${d}" fill="none" stroke="#c9e7ff" stroke-width="2.2" stroke-dasharray="7 11" stroke-linecap="round" opacity=".9"/>`;
+    if (f.kind==='spring') s += `<polygon points="32,52 46,30 60,52" fill="#8d8f86" stroke="#555" stroke-width="1.5"/><polygon points="40,52 46,38 52,52" fill="#b8bab2"/><circle cx="50" cy="56" r="13" fill="#72b3ea" stroke="#3b7ec4" stroke-width="3"/><path d="M42,54 q4,-3 8,0" stroke="#dff1ff" stroke-width="2" fill="none"/>`;
+    if (f.kind==='lake') s += `<ellipse cx="50" cy="50" rx="29" ry="22" fill="#72b3ea" stroke="#3b7ec4" stroke-width="3"/><path d="M34,46 q6,-4 12,0 M52,56 q6,-4 12,0 M40,58 q5,-3 10,0" stroke="#dff1ff" stroke-width="2" fill="none" stroke-linecap="round"/>`;
   });
+  // 道
   const roads = type.feats.filter(f=>f.type==='road');
-  const roadEnd = f => { if (f.edges.length!==1) return null; if (type.cloister) return type.cloisterPos; const opp=(f.edges[0]+2)%4; if (type.e[opp]==='C'){ const m=EDGE_MID[f.edges[0]]; return [50+(m[0]-50)*-0.5, 50+(m[1]-50)*-0.5]; } return null; };
-  roads.forEach(f=>{ s+=`<path d="${pathD(f.edges, roadEnd(f))}" fill="none" stroke="#6f5f43" stroke-width="12"/>`; });
-  roads.forEach(f=>{ s+=`<path d="${pathD(f.edges, roadEnd(f))}" fill="none" stroke="#efe4c8" stroke-width="8"/>`; });
-  if (roads.length>=3) s+=`<rect x="41" y="41" width="18" height="18" rx="3" fill="#efe4c8" stroke="#6f5f43" stroke-width="2"/>`;
+  const hasCornerCity = type.feats.some(f=>f.type==='city'&&f.shape.kind==='corner');
+  const roadEnd = f => { if (f.edges.length!==1) return null; if (type.cloister) return [type.cloisterPos[0], type.cloisterPos[1]+8]; const opp=(f.edges[0]+2)%4; if (type.e[opp]==='C'){ const m=EDGE_MID[f.edges[0]]; return [50+(m[0]-50)*-0.6, 50+(m[1]-50)*-0.6]; } return null; };
+  const roadD = f => pathD(f.edges, roadEnd(f), hasCornerCity);
+  roads.forEach(f=>{ s+=`<path d="${roadD(f)}" fill="none" stroke="#7d6a4c" stroke-width="12" stroke-linecap="butt"/>`; });
+  roads.forEach(f=>{ s+=`<path d="${roadD(f)}" fill="none" stroke="#eadfc3" stroke-width="8"/>`; });
+  if (roads.length>=3) s+=`<rect x="40" y="40" width="20" height="20" rx="3" fill="#eadfc3" stroke="#7d6a4c" stroke-width="2"/><rect x="45" y="44" width="10" height="8" fill="#efe6d2" stroke="#4a3320" stroke-width=".8"/><polygon points="43.5,44 50,38 56.5,44" fill="#b8362a" stroke="#4a3320" stroke-width=".8"/>`;
+  // 都市
   type.feats.filter(f=>f.type==='city').forEach(f=>{
-    s += `<g transform="rotate(${f.shape.rot*90} 50 50)"><path d="${CITY_D[f.shape.kind]}" fill="#d8b878" stroke="#6b4a26" stroke-width="2.5"/>${houses(f.shape.kind)}</g>`;
-    if (f.pennant){ const [x,y]=f.pennantPos; s += `<path transform="translate(${x-6},${y-7})" d="M0,0 h12 v8 l-6,6 l-6,-6 z" fill="#2b5fd9" stroke="#fff" stroke-width="1.5"/>`; }
+    const sh = CITY_SHAPES[f.shape.kind];
+    s += `<g transform="rotate(${f.shape.rot*90} 50 50)"><path d="${sh.fill}" fill="#d9c28e"/><path d="${sh.fill}" fill="url(#cityGrad)"/>${houses(f.shape.kind)}${sh.wall.map(w=>cityWall(w)+wallEnds(w)).join('')}</g>`;
+    if (f.pennant){ const [x,y]=f.pennantPos; s += `<g transform="translate(${x-6},${y-7})"><path d="M0,0 h12 v8 q-6,7 -6,7 q-6,-7 -6,-7 z" fill="#2b5fd9" stroke="#fff" stroke-width="1.4"/><path d="M0,4 h12" stroke="#fff" stroke-width="2"/></g>`; }
   });
-  if (type.cloister){ const [cx,cy]=type.cloisterPos; s += `<g transform="translate(${cx-14},${cy-16})"><rect x="4" y="12" width="20" height="18" fill="#cdbb9b" stroke="#5a4a2a" stroke-width="1.5"/><polygon points="1,12 14,1 27,12" fill="#a0452c" stroke="#5a2a1a" stroke-width="1.5"/><rect x="12" y="21" width="4" height="9" fill="#5a4a2a"/><path d="M14,1 v-6 M11.5,-2.5 h5" stroke="#5a4a2a" stroke-width="1.6"/></g>`; }
-  s += `<rect width="100" height="100" fill="none" stroke="rgba(40,30,10,.55)" stroke-width="1.5"/>`;
+  // 修道院
+  if (type.cloister){ const [cx,cy]=type.cloisterPos; s += cloisterMarkup(cx, cy); }
+  s += `<rect width="100" height="100" fill="none" stroke="rgba(40,30,10,.5)" stroke-width="1.5"/>`;
   return s;
 }
 function meepleMarkup(hex, x, y, lying){
@@ -216,7 +270,7 @@ function meepleMarkup(hex, x, y, lying){
 }
 // defs に全タイルのシンボルを登録
 (function initDefs(){
-  const defs = $('#defs'); let s='';
+  const defs = $('#defs'); let s='<radialGradient id="cityGrad" cx="50%" cy="40%" r="70%"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset="1" stop-color="#8a6a3a" stop-opacity=".22"/></radialGradient>';
   Object.values(E.TYPES).forEach(t=>{ s += `<symbol id="t-${t.id}" viewBox="0 0 100 100">${tileMarkup(t)}</symbol>`; });
   defs.innerHTML = s;
 })();
